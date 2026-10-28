@@ -34,6 +34,7 @@ struct Pack {
     QString mod_name;
     QString variant;
     QString option_name;
+    bool whole_package = false;
     bool local = false;
     bool enabled = false;
 

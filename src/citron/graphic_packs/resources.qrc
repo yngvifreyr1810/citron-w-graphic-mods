@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/graphic_packs">
         <file>catalog_seed.json</file>
+        <file>bundle_descriptions.json</file>
     </qresource>
 </RCC>

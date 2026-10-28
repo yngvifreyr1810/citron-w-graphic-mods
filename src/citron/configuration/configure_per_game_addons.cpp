@@ -7,6 +7,10 @@
 #include <utility>
 
 #include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QItemSelectionModel>
+#include <QTextBrowser>
 #include <QHeaderView>
 #include <QMenu>
 #include <QMessageBox>
@@ -22,6 +26,7 @@
 #include "citron/configuration/configure_input.h"
 #include "citron/configuration/configure_per_game_addons.h"
 #include "citron/uisettings.h"
+#include "citron/graphic_packs/pack.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
 #include "core/core.h"
@@ -58,7 +63,7 @@ ConfigurePerGameAddons::ConfigurePerGameAddons(Core::System& system_, QWidget* p
 
     item_model->insertColumns(0, 2);
     item_model->setHeaderData(0, Qt::Horizontal, tr("Patch Name"));
-    item_model->setHeaderData(1, Qt::Horizontal, tr("Version"));
+    item_model->setHeaderData(1, Qt::Horizontal, tr("Version / contents"));
 
     tree_view->header()->setStretchLastSection(true);
     tree_view->header()->setSectionResizeMode(0, QHeaderView::Interactive);
@@ -72,6 +77,18 @@ ConfigurePerGameAddons::ConfigurePerGameAddons(Core::System& system_, QWidget* p
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(tree_view);
+    mod_description = new QTextBrowser(this);
+    mod_description->setObjectName(QStringLiteral("addonDescription"));
+    mod_description->setAccessibleName(tr("Add-on description"));
+    mod_description->setOpenExternalLinks(false);
+    mod_description->setMaximumHeight(125);
+    mod_description->setPlainText(tr("Select an Add-on to read its description. Each checkbox enables or disables the complete installed package, including all of its IPS and RomFS files."));
+    layout->addWidget(mod_description);
+    connect(tree_view->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex& current) {
+        const QString text = current.siblingAtColumn(0).data(Qt::UserRole + 1).toString();
+        mod_description->setPlainText(text.isEmpty() ? tr("Select a mod to view its package description.") : text);
+    });
 
     // Replace the scrollArea in the UI's gridLayout with our tree_view layout
     // QTreeView has its own scrollbars; QScrollArea was redundant and causing layout issues here.
@@ -121,8 +138,9 @@ void ConfigurePerGameAddons::ApplyConfiguration() {
     std::sort(current.begin(), current.end());
 
     if (disabled_addons != current) {
-        Common::FS::RemoveFile(Common::FS::GetCitronPath(Common::FS::CitronPath::CacheDir) /
-                               "game_list" / fmt::format("{:016X}.pv.txt", title_id));
+        const auto cache = Common::FS::GetCitronPath(Common::FS::CitronPath::CacheDir) / "game_list";
+        GraphicPacks::InvalidatePatchCache(QString::fromStdString(cache.string()),
+                                          QStringLiteral("%1").arg(title_id, 16, 16, QLatin1Char('0')).toUpper());
     }
 
     Settings::values.disabled_addons[title_id] = disabled_addons;
@@ -364,6 +382,34 @@ void ConfigurePerGameAddons::LoadConfiguration() {
         }
 
         mod_item->setData(QString::fromStdString(patch.name), Qt::UserRole);
+        // A payload directory already is the atomic unit used by PatchManager.
+        // Display the author's package name/description without making child
+        // switches for each IPS, RomFS file or individual patch instruction.
+        const auto mod_root = Common::FS::GetCitronPath(Common::FS::CitronPath::LoadDir) /
+                              fmt::format("{:016X}", title_id) / patch.name;
+        const QString root = QString::fromStdString(mod_root.string());
+        QString description;
+        QFile manifest(root + QStringLiteral("/.graphic-pack.json"));
+        if (manifest.size() <= 1024 * 1024 && manifest.open(QIODevice::ReadOnly)) {
+            const auto pack = GraphicPacks::Pack::FromJson(QJsonDocument::fromJson(manifest.readAll()).object());
+            description = pack.description;
+            if (!pack.name.isEmpty()) mod_item->setText(pack.name);
+            if (!pack.repository.isEmpty()) description += tr("\n\nSource: %1").arg(pack.repository);
+        }
+        if (description.isEmpty()) {
+            for (const auto& name : {QStringLiteral("description.txt"), QStringLiteral("README.txt"), QStringLiteral("README.md")}) {
+                QFile notes(root + QLatin1Char('/') + name);
+                if (notes.size() > 0 && notes.size() <= 64 * 1024 && notes.open(QIODevice::ReadOnly)) {
+                    description = QString::fromUtf8(notes.readAll());
+                    break;
+                }
+            }
+        }
+        if (description.isEmpty()) description = tr("Installed Add-on: %1\nContents: %2\n\nNo author description was included with this installation.")
+            .arg(full_name, QString::fromStdString(patch.version));
+        description += tr("\n\nThis switch applies to the whole package. Its IPS and RomFS components are not enabled separately.");
+        mod_item->setData(description, Qt::UserRole + 1);
+        mod_item->setToolTip(description);
 
         QList<QStandardItem*> row;
         row << mod_item << new QStandardItem{QString::fromStdString(patch.version)};

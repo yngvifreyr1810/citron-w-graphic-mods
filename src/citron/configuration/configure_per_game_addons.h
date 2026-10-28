@@ -20,6 +20,7 @@ class QStandardItem;
 class QStandardItemModel;
 class QTreeView;
 class QVBoxLayout;
+class QTextBrowser;
 
 namespace ModManager {
 class GameBananaDialog;
@@ -58,6 +59,7 @@ private:
     QVBoxLayout* layout = nullptr;
     QTreeView* tree_view = nullptr;
     QStandardItemModel* item_model = nullptr;
+    QTextBrowser* mod_description = nullptr;
 
     std::vector<QList<QStandardItem*>> list_items;
 

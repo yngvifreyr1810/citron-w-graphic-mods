@@ -8,6 +8,8 @@
 #include "pack.h"
 
 namespace GraphicPacks {
+bool AssembleAuthorBundle(const QString& extracted, const QString& title_id,
+                          const QString& destination, QString& error);
 struct PreparedData {
     Pack pack;
     QStringList directories;

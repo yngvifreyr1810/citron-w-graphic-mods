@@ -21,7 +21,7 @@ bool WriteFile(const QString& path, const QByteArray& bytes) {
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size() && file.commit();
 }
 
-bool CopyTree(const QString& source, const QString& destination, QString& error) {
+bool CopyTree(const QString& source, const QString& destination, QString& error, bool merge = false) {
     QDir().mkpath(destination);
     QDirIterator it(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
     int count = 0;
@@ -36,6 +36,16 @@ bool CopyTree(const QString& source, const QString& destination, QString& error)
             return false;
         }
         const QString target = destination + QLatin1Char('/') + relative;
+        if (merge && info.isFile() && QFileInfo::exists(target)) {
+            QFile first(path), second(target);
+            QCryptographicHash a(QCryptographicHash::Sha256), b(QCryptographicHash::Sha256);
+            if (!first.open(QIODevice::ReadOnly) || !second.open(QIODevice::ReadOnly) ||
+                !a.addData(&first) || !b.addData(&second) || a.result() != b.result()) {
+                error = QStringLiteral("The author package contains conflicting alternatives at %1. Nothing was installed.").arg(relative);
+                return false;
+            }
+            continue;
+        }
         if (info.isDir()) {
             if (!QDir().mkpath(target)) {
                 error = QStringLiteral("Could not create the mod directory.");
@@ -100,6 +110,9 @@ PreparedData PrepareFiles(Pack pack, const QString& download, const QString& tem
         }
     }
     const QString suffix = QFileInfo(download).suffix().toLower();
+    // Apply archive-level atomicity to every source, including locally imported
+    // archives whose metadata predates whole_package.
+    if (suffix == QStringLiteral("zip") || suffix == QStringLiteral("rar")) result.pack.whole_package = true;
     if (suffix == QStringLiteral("pchtxt")) {
         InspectPatch(result.pack, bytes);
         const QString root = temporary + QStringLiteral("/payload");
@@ -163,6 +176,13 @@ PreparedData PrepareFiles(Pack pack, const QString& download, const QString& tem
                 return result;
             }
         }
+        if (result.pack.whole_package) {
+            const QString root = temporary + QStringLiteral("/author-bundle");
+            if (!AssembleAuthorBundle(extracted, result.pack.title_id, root, result.error)) return result;
+            result.directories = {root};
+            result.labels = {QStringLiteral("Complete author package")};
+            return result;
+        }
         result.directories = FindPayloads(extracted, result.pack.title_id);
         // Atmosphere graphics bundles often put IPS files in exefs_patches separately from RomFS.
         QStringList standalone_ips;
@@ -191,6 +211,40 @@ PreparedData PrepareFiles(Pack pack, const QString& download, const QString& tem
     return result;
 }
 } // namespace
+
+bool AssembleAuthorBundle(const QString& extracted, const QString& title_id,
+                          const QString& destination, QString& error) {
+    const auto roots = FindPayloads(extracted, title_id);
+    bool found = false;
+    for (const auto& root : roots) {
+        if (!CopyTree(root, destination, error, true)) return false;
+        found = true;
+    }
+    // Atmosphere places the matching IPS beside contents/<TID>/romfs.
+    // Preserve each IPS byte-for-byte; changing the wrapper is sufficient.
+    QDirIterator patches(extracted, {QStringLiteral("*.ips"), QStringLiteral("*.pchtxt")},
+                         QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
+    while (patches.hasNext()) {
+        const QString path = patches.next();
+        if (!path.contains(QStringLiteral("/exefs_patches/"), Qt::CaseInsensitive)) continue;
+        const QString target = destination + QStringLiteral("/exefs/") + QFileInfo(path).fileName();
+        if (QFileInfo::exists(target)) {
+            QFile first(path), second(target);
+            QCryptographicHash a(QCryptographicHash::Sha256), b(QCryptographicHash::Sha256);
+            if (!first.open(QIODevice::ReadOnly) || !second.open(QIODevice::ReadOnly) ||
+                !a.addData(&first) || !b.addData(&second) || a.result() != b.result()) {
+                error = QStringLiteral("Conflicting IPS files share the name %1. Nothing was installed.").arg(QFileInfo(path).fileName());
+                return false;
+            }
+        } else if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !QFile::copy(path, target)) {
+            error = QStringLiteral("Could not stage the complete IPS bundle.");
+            return false;
+        }
+        found = true;
+    }
+    if (!found) error = QStringLiteral("No payload for the selected game was found in this author package.");
+    return found;
+}
 
 Installer::Installer(QString cache_directory_, QObject* parent)
     : QObject(parent), cache_directory(std::move(cache_directory_)), network(this) {

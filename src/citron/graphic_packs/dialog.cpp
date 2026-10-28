@@ -323,7 +323,7 @@ void Dialog::Rebuild() {
     for (const auto& pack : installed_by_id) packs << pack;
     packs = CuratePacks(std::move(packs), games);
     packs.erase(std::remove_if(packs.begin(), packs.end(), [](const Pack& pack) {
-        return pack.title_id == QStringLiteral("0100F2C0115B6000") && pack.id != NxOptimizer::CatalogueEntry().id;
+        return pack.title_id == QStringLiteral("0100F2C0115B6000") && pack.id != NxOptimizer::CatalogueEntry().id && !pack.whole_package;
     }), packs.end());
     unlisted_enabled_mods.clear();
     for (const auto& old : installed) {
@@ -436,6 +436,10 @@ void Dialog::ShowDetails() {
     const auto* pack = Selected();
     category_panel->hide();
     const bool is_nx = pack && pack->id == NxOptimizer::CatalogueEntry().id;
+    const bool author_bundle = pack && pack->whole_package;
+    description->setMaximumHeight(author_bundle ? QWIDGETSIZE_MAX : 130);
+    description->setSizePolicy(QSizePolicy::Preferred,
+                               author_bundle ? QSizePolicy::Expanding : QSizePolicy::Maximum);
     const auto unlisted = pack ? unlisted_enabled_mods.value(pack->title_id) : QStringList{};
     legacy_notice->setVisible(!unlisted.isEmpty());
     legacy_notice->setText(tr("%1 other installed mod(s) remain enabled outside this curated list. Review Properties > Add-ons for details.").arg(unlisted.size()));
@@ -443,7 +447,7 @@ void Dialog::ShowDetails() {
     nx->setVisible(is_nx);
     if (is_nx && isVisible()) nx->EnsureLoaded();
     primary->setVisible(!is_nx);
-    description->setVisible(pack && author_notes->isChecked());
+    description->setVisible(pack && (pack->whole_package || author_notes->isChecked()));
     metadata->setVisible(pack && author_notes->isChecked());
     author_notes->setVisible(pack != nullptr);
     variant_label->setVisible(!is_nx && prepared_id == selected_id && variants->count() > 1);

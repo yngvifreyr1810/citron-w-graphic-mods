@@ -31,6 +31,92 @@ void Write(const QString& path, const QByteArray& bytes) {
 class PackTests : public QObject {
     Q_OBJECT
 private slots:
+    void actualAuthorArchivesStayIntact() {
+        const QString fixtures = qEnvironmentVariable("CITRON_BUNDLE_FIXTURES");
+        if (fixtures.isEmpty()) QSKIP("Set CITRON_BUNDLE_FIXTURES to independently downloaded upstream archives for the optional integration check.");
+        QTemporaryDir temp;
+        Catalog catalog(temp.path() + QStringLiteral("/catalog"));
+        for (const auto& test : QVector<QStringList>{
+                 {QStringLiteral("Super Mario Odyssey"), QStringLiteral("0100000000010000"), QStringLiteral("SMO-release_1.0.3.rar")},
+                 {QStringLiteral("The Legend of Zelda Tears of the Kingdom"), QStringLiteral("0100F2C0115B6000"), QStringLiteral("TOTK-release_1.2.1.rar")}}) {
+            Pack pack;
+            for (const auto& candidate : catalog.Packs()) if (candidate.whole_package && candidate.game == test[0] && candidate.repository.startsWith(QStringLiteral("cucholix/"))) pack = candidate;
+            QVERIFY(!pack.id.isEmpty());
+            pack.title_id = test[1];
+            Installer installer(temp.path() + QStringLiteral("/cache"));
+            QSignalSpy ready(&installer, &Installer::PreparedReady);
+            QSignalSpy installed(&installer, &Installer::Installed);
+            QSignalSpy errors(&installer, &Installer::Failed);
+            installer.PrepareLocal(pack, fixtures + QLatin1Char('/') + test[2]);
+            QTRY_VERIFY_WITH_TIMEOUT(ready.count() || errors.count(), 15000);
+            QVERIFY2(errors.isEmpty(), errors.isEmpty() ? "" : qPrintable(errors[0][0].toString()));
+            QCOMPARE(installer.Prepared().directories.size(), 1);
+            QCOMPARE(installer.Prepared().labels.size(), 1);
+            const QString staged = installer.Prepared().directories.front();
+            QVERIFY(QFileInfo::exists(staged + QStringLiteral("/exefs")));
+            if (test[1] == QStringLiteral("0100000000010000")) QVERIFY(QFileInfo::exists(staged + QStringLiteral("/romfs/SystemData/GraphicsPreset.szs")));
+            installer.Commit(0, temp.path() + QStringLiteral("/load"));
+            QTRY_VERIFY_WITH_TIMEOUT(installed.count() || errors.count(), 15000);
+            QVERIFY(errors.isEmpty());
+            QCOMPARE(installed.count(), 1);
+            const QString game_root = temp.path() + QStringLiteral("/load/") + pack.title_id;
+            QCOMPARE(FindPayloads(game_root, pack.title_id).size(), 1);
+            QFile manifest(FindPayloads(game_root, pack.title_id).front() + QStringLiteral("/.graphic-pack.json"));
+            QVERIFY(manifest.open(QIODevice::ReadOnly));
+            QVERIFY(Pack::FromJson(QJsonDocument::fromJson(manifest.readAll()).object()).whole_package);
+        }
+    }
+    void wholeAuthorBundlesAcrossGames() {
+        QTemporaryDir temp;
+        Catalog catalog(temp.path());
+        int bundles = 0;
+        bool odyssey = false, totk = false;
+        for (const auto& pack : catalog.Packs()) {
+            if (pack.repository != QStringLiteral("cucholix/NX-IPS-romfs-compilation")) continue;
+            ++bundles;
+            QVERIFY(pack.whole_package);
+            QVERIFY(QFileInfo(pack.path).fileName().startsWith(QStringLiteral("release_")));
+            QVERIFY(!pack.path.endsWith(QStringLiteral(".pchtxt")));
+            QVERIFY(!pack.description.isEmpty());
+            const auto restored = Pack::FromJson(pack.ToJson());
+            QVERIFY(restored.whole_package);
+            if (pack.game == QStringLiteral("Super Mario Odyssey")) {
+                odyssey = true;
+                QCOMPARE(pack.version, QStringLiteral("1.3.0"));
+                QVERIFY(pack.description.contains(QStringLiteral("interlacing")));
+            }
+            if (pack.game.contains(QStringLiteral("Tears of the Kingdom"))) totk = true;
+        }
+        QVERIFY(bundles > 100);
+        QVERIFY(odyssey && totk);
+    }
+    void assemblesIpsAndRomfsAsOnePackage() {
+        QTemporaryDir temp;
+        const QString extracted = temp.path() + QStringLiteral("/archive");
+        const QString output = temp.path() + QStringLiteral("/bundle");
+        const QString tid = QStringLiteral("0100000000010000");
+        Write(extracted + QStringLiteral("/part-a/exefs/a.ips"), "PATCH-original-ips");
+        Write(extracted + QStringLiteral("/atmosphere/exefs_patches/Graphics/b.ips"), "IPS32-original-second");
+        Write(extracted + QStringLiteral("/atmosphere/contents/") + tid + QStringLiteral("/romfs/SystemData/test.bin"), "original-romfs");
+        Write(extracted + QStringLiteral("/atmosphere/contents/0100152000022000/romfs/other.bin"), "other-game");
+        QString error;
+        QVERIFY2(AssembleAuthorBundle(extracted, tid, output, error), qPrintable(error));
+        QCOMPARE(FindPayloads(output, tid), QStringList{output});
+        QVERIFY(QFileInfo::exists(output + QStringLiteral("/exefs/a.ips")));
+        QVERIFY(QFileInfo::exists(output + QStringLiteral("/exefs/b.ips")));
+        QFile romfs(output + QStringLiteral("/romfs/SystemData/test.bin"));
+        QVERIFY(romfs.open(QIODevice::ReadOnly));
+        QCOMPARE(romfs.readAll(), QByteArray("original-romfs"));
+        QVERIFY(!QFileInfo::exists(output + QStringLiteral("/romfs/other.bin")));
+    }
+    void authorBundleDoesNotOverwriteConflictingAlternatives() {
+        QTemporaryDir temp;
+        Write(temp.path() + QStringLiteral("/archive/one/romfs/file.bin"), "option one");
+        Write(temp.path() + QStringLiteral("/archive/two/romfs/file.bin"), "option two");
+        QString error;
+        QVERIFY(!AssembleAuthorBundle(temp.path() + QStringLiteral("/archive"), QStringLiteral("0100000000010000"), temp.path() + QStringLiteral("/output"), error));
+        QVERIFY(error.contains(QStringLiteral("conflicting alternatives")));
+    }
     void selectingCategoryShowsControlsAndCollapsesDescription() {
         QTemporaryDir temp;
         Game game{QStringLiteral("010028600EBDA000"), QStringLiteral("Super Mario 3D World"), QStringLiteral("1.2.2"), QStringLiteral("B424BE150A8E7D78")};

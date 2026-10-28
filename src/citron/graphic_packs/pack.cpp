@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QMap>
 #include <QRegularExpression>
 #include <QSet>
@@ -106,11 +107,13 @@ QJsonObject Pack::ToJson() const {
             {QStringLiteral("repository"), repository}, {QStringLiteral("path"), path},
             {QStringLiteral("blob_sha"), blob_sha}, {QStringLiteral("description_path"), description_path},
             {QStringLiteral("description"), description}, {QStringLiteral("variant"), variant},
-            {QStringLiteral("option_name"), option_name}};
+            {QStringLiteral("option_name"), option_name},
+            {QStringLiteral("whole_package"), whole_package}};
 }
 
 Pack Pack::FromJson(const QJsonObject& object) {
     Pack pack;
+    pack.whole_package = object.value(QStringLiteral("whole_package")).toBool();
     pack.id = object.value(QStringLiteral("id")).toString();
     pack.title_id = object.value(QStringLiteral("title_id")).toString().toUpper();
     pack.game = object.value(QStringLiteral("game")).toString();
@@ -120,6 +123,10 @@ Pack Pack::FromJson(const QJsonObject& object) {
     for (const auto& id : object.value(QStringLiteral("build_ids")).toArray()) pack.build_ids << id.toString();
     pack.repository = object.value(QStringLiteral("repository")).toString();
     pack.path = object.value(QStringLiteral("path")).toString();
+    if (!object.contains(QStringLiteral("whole_package"))) {
+        const auto extension = QFileInfo(pack.path).suffix().toLower();
+        pack.whole_package = extension == QStringLiteral("zip") || extension == QStringLiteral("rar");
+    }
     pack.blob_sha = object.value(QStringLiteral("blob_sha")).toString();
     pack.description_path = object.value(QStringLiteral("description_path")).toString();
     pack.description = object.value(QStringLiteral("description")).toString();
@@ -203,6 +210,11 @@ Compatibility CheckCompatibility(const Pack& pack, const Game& game) {
 
 QVector<Pack> ParseRepository(const QString& repository, const QJsonObject& tree) {
     QVector<Pack> result;
+    QJsonObject bundle_notes;
+    if (repository == QStringLiteral("cucholix/NX-IPS-romfs-compilation")) {
+        QFile file(QStringLiteral(":/graphic_packs/bundle_descriptions.json"));
+        if (file.open(QIODevice::ReadOnly)) bundle_notes = QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("packs")).toObject();
+    }
     const QJsonArray entries = tree.value(QStringLiteral("tree")).toArray();
     QMap<QString, QString> names;
     if (repository.startsWith(QStringLiteral("ChanseyIsTheBest/"))) {
@@ -223,6 +235,7 @@ QVector<Pack> ParseRepository(const QString& repository, const QJsonObject& tree
         Pack pack;
         pack.repository = repository;
         pack.path = path;
+        pack.whole_package = ext == QStringLiteral("zip") || ext == QStringLiteral("rar");
         pack.id = StableId(repository, path);
         pack.blob_sha = object.value(QStringLiteral("sha")).toString();
         if (repository.startsWith(QStringLiteral("ChanseyIsTheBest/"))) {
@@ -242,9 +255,24 @@ QVector<Pack> ParseRepository(const QString& repository, const QJsonObject& tree
             pack.description_path = QStringLiteral("titles/%1/%2.txt").arg(parts[1], pack.game);
             pack.description = QStringLiteral("Raises 3–4 player local races to 60 FPS. One- and two-player races already use 60 FPS. Requires enough CPU/GPU performance. Based on theboy181's patch, updated for 3.0.3 by Craftyawesome. Only the 60 FPS effect is installed; the hardware resolution cheats are excluded.");
         } else if (repository.startsWith(QStringLiteral("cucholix/"))) {
-            // Whole overhaul packs from this hardware-oriented source are kept
-            // out until individual emulator effects have been reviewed.
-            continue;
+            // The author's release archive is the unit of installation, not
+            // each effect in a development pchtxt or each payload directory.
+            if (parts.size() != 3 || (ext != QStringLiteral("zip") && ext != QStringLiteral("rar")) ||
+                !QFileInfo(path).fileName().startsWith(QStringLiteral("release_")) || path.contains(QStringLiteral(".part"))) continue;
+            pack.game = parts[1];
+            pack.name = QStringLiteral("Graphics bundle (cucholix)");
+            pack.category = QStringLiteral("Mods");
+            pack.whole_package = true;
+            pack.description_path = parts[0] + QLatin1Char('/') + parts[1] + QStringLiteral("/description.txt");
+            const auto notes = bundle_notes.value(path).toObject();
+            const bool verified = !pack.blob_sha.isEmpty() && notes.value(QStringLiteral("archive_sha")).toString() == pack.blob_sha;
+            if (verified) {
+                // description.txt is authoritative; some archive filenames
+                // contain an old version (e.g. Odyssey release_1.0.3).
+                pack.version = notes.value(QStringLiteral("version")).toString();
+                pack.description = notes.value(QStringLiteral("description")).toString();
+            }
+            pack.description += QStringLiteral("\n\nComplete author package: IPS and RomFS components are installed together and enabled/disabled as one Add-on. Original effects are not split into individual options. Upstream testing targets Switch hardware; Citron compatibility is not verified by that testing.");
         } else if (repository == QStringLiteral("yuzu-mirror/yuzu-mod-archive")) {
             if (parts.size() != 3 || parts[0] != QStringLiteral("files") ||
                 parts[1] != QStringLiteral("Super Mario Odyssey") || ext != QStringLiteral("zip")) continue;
@@ -275,7 +303,7 @@ QVector<Pack> ParseRepository(const QString& repository, const QJsonObject& tree
             if (path.contains(QStringLiteral("OLD STUFF"), Qt::CaseInsensitive) ||
                 path.contains(QStringLiteral("DEPRECATED"), Qt::CaseInsensitive)) continue;
             pack.category = CategoryForName(pack.name);
-            pack.description = QStringLiteral("Community graphics patch. Requires the indicated game version and matching Build ID. The installer will let you choose a single mod if the archive contains alternatives.");
+            pack.description = QStringLiteral("Community graphics package. Requires the indicated game version and matching Build ID. An IPS/RomFS archive is installed and toggled as one complete Add-on. Conflicting alternatives inside one archive must be resolved by choosing the correct author release.");
         }
         result.push_back(std::move(pack));
     }
@@ -288,7 +316,7 @@ QVector<Pack> CuratePacks(QVector<Pack> packs, const QVector<Game>& games) {
         const QString original = pack.name;
         if (original.contains(QRegularExpression(QStringLiteral("dynamic[ _-]*res|\\bDRS\\b|\\bRRS\\b|handheld|overclock|fpslocker|saltynx|reversenx|sys.?clk"), QRegularExpression::CaseInsensitiveOption))) continue;
         if (pack.local && !original.contains(QRegularExpression(QStringLiteral("ultracam|optimizer|fps|frame|fxaa|taa|fsr|bloom|dof|depth|shadow|lens|lod|level.?of.?detail|resolution|wide|draw|graphic|visual|black.?screen"), QRegularExpression::CaseInsensitiveOption))) continue;
-        QString key_name = NormalizeName(original);
+        QString key_name = pack.whole_package ? QString() : NormalizeName(original);
         QString summary;
         if (key_name.contains(QStringLiteral("disablefxaa")) || key_name.contains(QStringLiteral("forcefxaaoff"))) {
             pack.name = QStringLiteral("FXAA: disabled");
@@ -318,6 +346,7 @@ QVector<Pack> CuratePacks(QVector<Pack> packs, const QVector<Game>& games) {
             pack.name.replace(QLatin1Char('_'), QLatin1Char(' '));
             pack.name = pack.name.simplified();
         }
+        if (pack.whole_package) pack.name = original;
         if (!summary.isEmpty()) pack.description = summary + QStringLiteral("\n\n") + pack.description;
         const Game* installed = nullptr;
         for (const auto& game : games) if (game.title_id == pack.title_id ||
