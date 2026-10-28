@@ -24,6 +24,7 @@
 #include "citron/compatibility_list.h"
 #include "citron/custom_metadata.h"
 #include "citron/game_list.h"
+#include "citron/game_list_addons.h"
 #include "citron/game_list_p.h"
 #include "citron/game_list_worker.h"
 #include "citron/uisettings.h"
@@ -500,7 +501,7 @@ QList<QStandardItem*> MakeGameListEntry(const std::string& path, const std::stri
             return FormatPatchNameVersions(patch, loader, loader.IsRomFSUpdatable());
         });
 
-    auto* addon_item = new GameListItem(patch_versions);
+    auto* addon_item = new GameListItem(GameListPresentation::SummarizeAddons(patch_versions));
 
     // Create a high-end HTML tooltip for the Add-ons column
     if (!patch_versions.isEmpty()) {

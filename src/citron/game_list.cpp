@@ -3400,7 +3400,7 @@ bool ScarletNXTakesKeyFlags(const QString& exe) {
     return takes;
 }
 
-void RunWithAot(GameList* parent, const QString& path) {
+[[maybe_unused]] void RunWithAot(GameList* parent, const QString& path) {
     const QString exe = ResolveScarletNX(parent);
     if (exe.isEmpty()) {
         return;

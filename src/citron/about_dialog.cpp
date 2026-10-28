@@ -43,7 +43,7 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
 
     const auto build_flags = std::string(Common::g_build_name);
     const auto citron_build_version =
-        fmt::format("citron {} | {} | {}", Common::g_build_version, Common::g_build_name,
+        fmt::format("citron-mods-by-yngvifreyr1810 Beta v0.1 | {} | {} | {}", Common::g_build_version, Common::g_build_name,
                     build_flags != "None" ? build_flags : "Standard");
 
     if (is_gamescope) {

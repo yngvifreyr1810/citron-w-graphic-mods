@@ -153,6 +153,9 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "citron/debugger/wait_tree.h"
 #include "citron/game_list.h"
 #include "citron/game_list_p.h"
+#include "citron/graphic_packs/dialog.h"
+#include "citron/graphic_packs/game_library.h"
+#include "citron/discord_presence.h"
 #include "citron/hotkeys.h"
 #include "citron/install_dialog.h"
 #include "citron/loading_screen.h"
@@ -1521,6 +1524,71 @@ void GMainWindow::InitializeDebugWidgets() {
     auto* memory_tools_action = memory_tools_widget->toggleViewAction();
     memory_tools_action->setText(tr("Memory & Cheat Engine"));
     ui->menu_Tools->insertAction(ui->action_Capture_Screenshot, memory_tools_action);
+
+    auto* graphic_packs_action = new QAction(tr("Graphic packs..."), this);
+    auto* discord_action = new QAction(tr("Discord Rich Presence..."), this);
+    ui->menu_Tools->insertAction(memory_tools_action, discord_action);
+    connect(discord_action, &QAction::triggered, this, [this] {
+        if (auto* presence = findChild<DiscordPresence*>(QStringLiteral("discordPresence"))) presence->Configure(this);
+    });
+    graphic_packs_action->setObjectName(QStringLiteral("actionGraphicPacks"));
+    ui->menu_Emulation->insertAction(ui->action_Configure, graphic_packs_action);
+    ui->menu_Tools->insertAction(memory_tools_action, graphic_packs_action);
+    connect(graphic_packs_action, &QAction::triggered, this, [this] {
+        const auto games = GraphicPacks::ReadGameLibrary(*game_list->GetModel(), *system, vfs);
+        const auto load = QString::fromStdString(Common::FS::GetCitronPath(Common::FS::CitronPath::LoadDir).string());
+        const auto cache = QString::fromStdString(Common::FS::GetCitronPath(Common::FS::CitronPath::CacheDir).string()) + QStringLiteral("/graphic-packs");
+        GraphicPacks::Dialog dialog(games, load, cache, !system->IsPoweredOn(), this);
+        dialog.SetSdmcDirectory(QString::fromStdString(Common::FS::GetCitronPath(Common::FS::CitronPath::SDMCDir).string()));
+        bool changed = false;
+        connect(&dialog, &GraphicPacks::Dialog::EnabledChanged, this,
+                [this, &changed, cache](const QString& id, const QString& mod, bool enabled) {
+            const auto title_id = id.toULongLong(nullptr, 16);
+            if (!changed) {
+                const QString backup = cache + QStringLiteral("/backups/") + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz")) + QStringLiteral("/qt-config.ini");
+                QDir().mkpath(QFileInfo(backup).absolutePath());
+                const QString current = QString::fromStdString(config->GetConfigFilePath());
+                if (QFileInfo::exists(current) && !QFile::copy(current, backup)) {
+                    QMessageBox::warning(this, tr("Graphic packs"), tr("Could not back up the current settings. The selection was not saved."));
+                    return;
+                }
+            }
+            auto& disabled = Settings::values.disabled_addons[title_id];
+            const auto name = mod.toStdString();
+            disabled.erase(std::remove(disabled.begin(), disabled.end(), name), disabled.end());
+            if (!enabled) disabled.push_back(name);
+            GraphicPacks::InvalidatePatchCache(
+                QString::fromStdString((Common::FS::GetCitronPath(Common::FS::CitronPath::CacheDir) /
+                                        "game_list").string()), id);
+            config->SaveAllValues();
+            changed = true;
+        });
+        connect(&dialog, &GraphicPacks::Dialog::NxSettingsRequired, this, [this, cache](const QString& id, int layout) {
+            const QString path = QString::fromStdString(Common::FS::GetCitronPath(Common::FS::CitronPath::ConfigDir).string()) + QStringLiteral("/custom/") + id + QStringLiteral(".ini");
+            const QString backup = cache + QStringLiteral("/backups/") + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz")) + QLatin1Char('/') + id + QStringLiteral(".ini");
+            QDir().mkpath(QFileInfo(backup).absolutePath());
+            if (QFileInfo::exists(path) && !QFile::copy(path, backup)) {
+                QMessageBox::warning(this, tr("NX Optimizer"), tr("Could not back up per-game settings. Adjust the emulator's resolution scale to 1× before playing."));
+                return;
+            }
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QSettings settings(path, QSettings::IniFormat);
+            const int memory = std::max(layout, static_cast<int>(Settings::values.memory_layout_mode.GetValue()));
+            auto set = [&settings](const QString& key, int value) {
+                settings.setValue(key, value);
+                settings.setValue(key + QStringLiteral("/use_global"), false);
+                settings.setValue(key + QStringLiteral("/default"), false);
+            };
+            set(QStringLiteral("Renderer/resolution_setup"), static_cast<int>(Settings::ResolutionSetup::Res1X));
+            set(QStringLiteral("Core/memory_layout_mode"), memory);
+            set(QStringLiteral("Renderer/vram_usage_mode"), memory > 0 ? 1 : 0);
+            set(QStringLiteral("System/use_docked_mode"), static_cast<int>(Settings::ConsoleMode::Docked));
+            settings.sync();
+            if (settings.status() != QSettings::NoError) QMessageBox::warning(this, tr("NX Optimizer"), tr("Could not save all per-game graphics settings."));
+        });
+        dialog.exec();
+        if (changed) game_list->PopulateAsync(UISettings::values.game_dirs, true);
+    });
 
     connect(this, &GMainWindow::EmulationStarting, waitTreeWidget,
             &WaitTreeWidget::OnEmulationStarting);
@@ -5821,10 +5889,13 @@ void GMainWindow::MigrateConfigFiles() {
 void GMainWindow::UpdateWindowTitle(std::string_view title_name, std::string_view title_version,
                                     std::string_view gpu_vendor) {
     // Build the base title from the CMake-generated variables.
-    std::string base_title = "citron ";
-    base_title += Common::g_build_fullname; // This is "Nightly " or "" for Stable
-    base_title += "| ";
-    base_title += Common::g_build_version; // This is the git hash or Stable version tag.
+    std::string base_title = "citron-mods-by-yngvifreyr1810 | Beta v0.1";
+    auto* presence = findChild<DiscordPresence*>(QStringLiteral("discordPresence"));
+    if (!presence) {
+        const auto path = Common::FS::GetCitronPath(Common::FS::CitronPath::ConfigDir) / "citron-mods.ini";
+        presence = new DiscordPresence(QString::fromStdString(path.string()), this);
+    }
+    presence->SetGame(QString::fromUtf8(title_name.data(), int(title_name.size())));
 
 // Add the PGO tag if enabled.
 #ifdef CITRON_ENABLE_PGO_USE

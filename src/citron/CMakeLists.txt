@@ -16,6 +16,8 @@ add_executable(citron
     Info.plist
     about_dialog.cpp
     about_dialog.h
+    discord_presence.cpp
+    discord_presence.h
     aboutdialog.ui
     spinning_logo.cpp
     spinning_logo.h
@@ -208,6 +210,7 @@ add_executable(citron
     game_list_loading_overlay.h
     game_list_p.h
     game_list_worker.cpp
+    game_list_addons.h
     game_list_worker.h
     hotkeys.cpp
     hotkeys.h
@@ -339,9 +342,22 @@ target_sources(citron PRIVATE
     mod_manager/gamebanana_dialog.ui
     mod_manager/zip_extractor.cpp
     mod_manager/zip_extractor.h
+    graphic_packs/pack.cpp
+    graphic_packs/pack.h
+    graphic_packs/catalog.cpp
+    graphic_packs/catalog.h
+    graphic_packs/installer.cpp
+    graphic_packs/installer.h
+    graphic_packs/dialog.cpp
+    graphic_packs/dialog.h
+    graphic_packs/game_library.cpp
+    graphic_packs/game_library.h
+    graphic_packs/nx_optimizer.cpp
+    graphic_packs/nx_optimizer.h
+    graphic_packs/resources.qrc
 )
 
-target_link_libraries(citron PRIVATE Qt6::Network)
+target_link_libraries(citron PRIVATE Qt6::Network Qt6::Concurrent)
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_definitions(citron PRIVATE

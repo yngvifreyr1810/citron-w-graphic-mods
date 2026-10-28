@@ -1,37 +1,56 @@
-# Citron Neo
+# citron-mods-by-yngvifreyr1810
 
-<img src="./dist/citron.svg" width="128" alt="Citron Neo logo">
+**Beta v0.1** · A PC-focused Citron community fork by yngvifreyr1810.
 
-Citron Neo is an open-source emulator that continues the Citron codebase. It
-runs on Windows, Linux, macOS and Android (arm64). Development and maintenance
-happen on [Discord](https://discord.gg/7bdSQgQZfu).
+Graphic Packs is the first feature of this project. Further modding tools and quality-of-life improvements will follow as the project develops. This is an independent fork, not an official Citron release.
 
-## Building
+## Features
 
-Library dependencies are fetched at configure time by CPM, so you don't need to
-initialise submodules first.
+- Cemu-inspired Graphic Packs: select a game, then Graphics or Mods, and configure the available effects on the right.
+- A curated community catalogue with installed-version / Build ID filtering, source attribution, managed downloads and backups.
+- Native Tears of the Kingdom settings powered by NX Optimizer / UltraCam, with compact controls and preservation of other saved NX settings.
+- Compact library Add-ons summaries with full details in tooltips.
+- Discord Rich Presence showing the fork name, Beta v0.1 and the current game or library status.
 
-**Linux.** Run `./build-citron-linux.sh setup` once, then
-`./build-citron-linux.sh use --pgo none --lto full` for a build without the
-profiling round. The binary lands in `build/use-nopgo/bin/citron`, with an
-AppImage beside it. [docs/BUILDING-CITRON-LINUX.md](docs/BUILDING-CITRON-LINUX.md)
-covers the PGO stages, which give the best performance.
+## Getting started
 
-**Windows.** Build with clang-cl natively, or cross-compile from Linux with
-llvm-mingw. [docs/BUILDING-CITRON-WINDOWS.md](docs/BUILDING-CITRON-WINDOWS.md)
-has both.
+Download the Windows x64 archive from [Releases](https://github.com/yngvifreyr1810/citron-w-graphic-mods/releases), extract to a fresh folder and run `citron-mods-by-yngvifreyr1810.exe`. Keep the DLLs and plugin folders together. The included empty `user` folder selects portable mode. No games, firmware, keys, saves or personal profiles are included.
 
-**Android.** From `src/android`, run `./gradlew assembleMainlineRelease`.
-Without a release keystore in the environment, the APK is signed with the
-bundled debug key.
+Open **Emulation > Graphic packs** (also under Tools). Choose a game, then **Graphics** or **Mods**. Stop the game before applying changes. Expand **Description, compatibility and credits** when you need source details or warnings. Existing unlisted mods remain under the game's **Properties > Add-ons**.
 
-## Contributing
+This implements a similar workflow to Cemu, using Switch-specific patches. Cemu graphic-pack files cannot be loaded directly. Not every mod from the source repositories is approved or included.
 
-Issues and pull requests are welcome. Ask on Discord before starting something
-large. When reporting a bug, say which platform, GPU and driver you're on, and
-which commit or build you're running.
+For TOTK, select **Graphics**, load NX Optimizer settings, choose options and apply. Components download separately from the pinned upstream release. Applying uses 1× emulator scaling and extended memory when required; affected settings are backed up.
 
-## Licence
+## Discord Rich Presence
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). Third-party components and their
-licences are in [LICENSES/](LICENSES/).
+Rich Presence is enabled with the project's public Application ID. Run Discord desktop, and allow activity sharing in Discord settings. It shows the project name, current game/library and Beta v0.1. Use **Tools > Discord Rich Presence** to disable it or change the public ID. It needs no bot token or account token. The main application name comes from Discord Developer Portal; the version is sent as activity state.
+
+The local settings file is `user/config/citron-mods.ini` in portable mode. Game titles are shared with Discord while enabled. See [Discord RPC documentation](https://github.com/discord/discord-rpc/blob/master/documentation/hard-mode.md).
+
+## Status and development
+
+This is an early beta with a limited reviewed catalogue. Known inherited issues include Mario Kart 8 Deluxe white rendering on the development setup. This release does not claim to fix that renderer issue or guarantee every mod combination.
+
+- [Beta v0.1 notes](docs/releases/Beta-v0.1.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Build instructions and upstream](docs/README-UPSTREAM.md)
+- [Windows build](docs/BUILDING-CITRON-WINDOWS.md)
+- [Linux build](docs/BUILDING-CITRON-LINUX.md)
+
+For the focused Qt tests, configure `tools/graphic_packs_tests` with Qt Widgets, Network, Concurrent and Test, build, then run `graphic_packs_tests -platform offscreen`. The beta changes do not require Discord SDK libraries; Rich Presence uses Qt local IPC.
+
+## Credits and licences
+
+Built on [Citron Neo](https://github.com/citron-neo/emulator) and the work of Citron/yuzu contributors. Cemu inspired the Graphic Packs interaction design. Existing copyright notices and the GPL licence remain in place; see [LICENSE](LICENSE) and [LICENSES](LICENSES).
+
+Community sources and original author credits:
+
+- [MaxLastBreath/nx-optimizer](https://github.com/MaxLastBreath/nx-optimizer): NX Optimizer 3.2.0 / UltraCam Calamity 3.0.0; separately downloaded assets retain CC BY-NC 2.0 terms and are not bundled.
+- [theboy181/switch-ptchtxt-mods](https://github.com/theboy181/switch-ptchtxt-mods)
+- [StevensND/switch-port-mods](https://github.com/StevensND/switch-port-mods)
+- [yuzu-mirror/yuzu-mod-archive](https://github.com/yuzu-mirror/yuzu-mod-archive)
+- [cucholix/NX-IPS-romfs-compilation](https://github.com/cucholix/NX-IPS-romfs-compilation)
+- [ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats](https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats)
+
+Source inclusion is not a claim of blanket compatibility or permission to redistribute every mod. Downloaded mods retain their upstream licences and credits.

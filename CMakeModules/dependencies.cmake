@@ -455,11 +455,17 @@ if (NOT TARGET sirit)
     else()
         set(SIRIT_USE_SYSTEM_SPIRV_HEADERS ON)
     endif()
-    CPMAddPackage(
-        NAME sirit
-        GITHUB_REPOSITORY yuzu-mirror/sirit
-        GIT_TAG ab75463999f4f3291976b079d42d52ee91eebf3f
-    )
+    # The bundled Sirit includes the quad-swap emitter used by the current
+    # shader recompiler; the legacy CPM revision predates that instruction.
+    if (EXISTS "${CMAKE_SOURCE_DIR}/externals/sirit/CMakeLists.txt")
+        add_subdirectory("${CMAKE_SOURCE_DIR}/externals/sirit" "${CMAKE_BINARY_DIR}/sirit")
+    else()
+        CPMAddPackage(
+            NAME sirit
+            GITHUB_REPOSITORY yuzu-mirror/sirit
+            GIT_TAG ab75463999f4f3291976b079d42d52ee91eebf3f
+        )
+    endif()
     if (CITRON_CLANGCL AND TARGET sirit)
         get_target_property(_sirit_compile_options sirit COMPILE_OPTIONS)
         if (_sirit_compile_options)
