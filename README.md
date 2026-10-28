@@ -52,5 +52,6 @@ Community sources and original author credits:
 - [yuzu-mirror/yuzu-mod-archive](https://github.com/yuzu-mirror/yuzu-mod-archive)
 - [cucholix/NX-IPS-romfs-compilation](https://github.com/cucholix/NX-IPS-romfs-compilation)
 - [ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats](https://github.com/ChanseyIsTheBest/NX-60FPS-RES-GFX-Cheats)
+- HUGE to Codex and Qoder (when Codex is out of quota), they did 99% of the work.
 
 Source inclusion is not a claim of blanket compatibility or permission to redistribute every mod. Downloaded mods retain their upstream licences and credits.
